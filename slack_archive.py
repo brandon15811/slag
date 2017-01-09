@@ -8,6 +8,7 @@ import time
 import zipfile
 
 from slacker import Slacker, Error
+from pprint import pprint
 
 import markup
 import mongo_store
@@ -34,6 +35,8 @@ class SlackArchive(object):
         self.scheduler = scheduler.Scheduler(ctx, mongo)
         self._setup_scheduler()
         self.scheduler.start()
+        # self.update_streams_properties()
+        # self.fetch_public_messages()
 
     def _setup_scheduler(self):
         self.scheduler.every(25).minutes.do(self.people_fetch_all)
@@ -63,7 +66,15 @@ class SlackArchive(object):
     def _prepare_messages(self, query):
         results = []
         for res in query:
-            res['from'] = self.people[res['from']]
+            if res['type'] == 'bot_message':
+                res['from'] = {
+                    'name': res['from'],
+                    'login': res['from'],
+                    'avatar': 'https://avatars.slack-edge.com/2016-05-07/41056110418_35ed6069a2e8e973a232_72.png',
+                    '_id': res['from']
+                 }
+            else:
+                res['from'] = self.people[res['from']]
             res['to'] = self.streams[res['to']]
             res['ctx'] = SlackArchive._message_uid(res['from']['_id'],
                                                    str(res['ts']))
@@ -197,10 +208,16 @@ class SlackArchive(object):
             # useless
             'bot_add', 'bot_remove',
             'channel_join', 'channel_leave',
-            'channel_archive', 'channel_unarchive'}
+            'channel_archive', 'channel_unarchive',
+            # testing
+            'bot_message', 'file_comment'
+
+        }
         # format is not supported yet
-        types_ignore = {'pinned_item', 'file_comment',
-                        'bot_message', 'is_ephemeral'}
+        types_ignore = {'pinned_item',
+                        # 'file_comment',
+                        # 'bot_message',
+                        'is_ephemeral'}
         return types_import, types_ignore
 
     @staticmethod
@@ -215,7 +232,7 @@ class SlackArchive(object):
                         'members', 'purpose', 'topic', 'comment', 'item',
                         'attachments', 'file', 'reactions', 'name', 'old_name',
                         'icons', 'is_intro', 'no_notifications',
-                        'room', 'channel', 'is_ephemeral'}
+                        'room', 'channel', 'is_ephemeral', 'mrkdwn'}
         for msg in msgs:
             unknown_fields = set(msg.keys()) - known_fields
             assert len(unknown_fields) == 0, ', '.join(unknown_fields)
@@ -233,12 +250,35 @@ class SlackArchive(object):
                               msg['file']['name'] + ' ' +
                               msg['file']['title'] + '\n' +
                               msg['file']['url_private'])
+
+            if msg.get('text'):
+                full_msg = msg['text']
+            else:
+                full_msg = ''
+            if msg.get('attachments'):
+                for attach in msg['attachments']:
+                    if attach.get('title'):
+                        full_msg += "\n" + "*" + attach['title'] + "*"
+                    if attach.get('fallback'):
+                        full_msg += "\n" + attach['fallback']
+                    if attach.get('text') and attach.get('text') != attach.get('fallback'):
+                        full_msg += "\n" + attach['text']
+
+            if subtype == 'bot_message':
+                user = msg.get('username') or msg['bot_id']
+            elif subtype == 'file_comment':
+                user = msg['comment']['user']
+            else:
+                user = msg['user']
+
             bulk.find({'_id': msg_id}).upsert().update(
                 {'$set': {'ts': float(msg['ts']),
-                          'type': hash(subtype),
-                          'msg': msg['text'],
-                          'from': msg['user'],
-                          'to': channel['id']}})
+                          'type': subtype,
+                          'msg': full_msg,
+                          'from': user,
+                          'to': channel['id'],
+                          'raw': msg
+                          }})
         return msg_counter, msgs[0]['ts']
 
     @scheduler.task_logging
@@ -334,7 +374,7 @@ class SlackArchive(object):
         self.log.info('Updating streams properties')
         empty_count = 0
         for stream_id in self.streams.keys():
-            if not self.streams[stream_id].get('empty'):
+            if self.streams[stream_id].get('empty'):
                 continue
             stream_row = self.mongo.db.messages.find_one({'to': stream_id})
             self.streams.set_field(stream_id, 'empty', stream_row is None)
