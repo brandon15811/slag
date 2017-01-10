@@ -9,6 +9,7 @@ import itertools
 import os
 import sys
 import time
+import json
 
 import flask
 import flask_pymongo
@@ -88,7 +89,18 @@ class ReverseProxied(object):
 
     def __call__(self, environ, start_response):
         scheme = environ.get('HTTP_X_SCHEME', '')
-        if scheme:
+        cf_visitor = environ.get('HTTP_CF_VISITOR')
+        if cf_visitor:
+            try:
+                cf_json = json.loads(cf_visitor)
+                cf_scheme = cf_json.get('scheme')
+                if cf_scheme and (cf_scheme == 'http' or cf_scheme == 'https'):
+                    environ['wsgi.url_scheme'] = cf_json['scheme']
+                else:
+                    cf_visitor = None
+            except ValueError:
+                cf_visitor = None
+        if scheme and not cf_visitor:
             environ['wsgi.url_scheme'] = scheme
         host = environ.get('HTTP_X_FORWARDED_SERVER', '')
         if host:
