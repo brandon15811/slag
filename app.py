@@ -403,9 +403,9 @@ class GUnicornRunner(gunicorn.app.base.BaseApplication):
         """Default hardcoded config"""
         setup = {
             'bind': '[::]:{}'.format(int(os.environ.get('PORT', 8080))),
-            'certfile': 'cert.pem',
-            'keyfile': 'privkey.pem',
-            'ca_certs': 'chain.pem',
+            # 'certfile': 'cert.pem',
+            # 'keyfile': 'privkey.pem',
+            # 'ca_certs': 'chain.pem',
             'workers': 8,
             'daemon': True,
             'timeout': 10*60,  # wait before results
