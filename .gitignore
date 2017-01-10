@@ -68,6 +68,7 @@ include/
 
 #Private area
 bootstrap.py
+slag.env
 
 # a bit more
 .DS_Store
